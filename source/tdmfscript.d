@@ -1,8 +1,10 @@
 module tdmfscript;
 import std.conv;
 import std.file;
+import std.format;
 import std.stdio;
 import std.string;
+import std.utf;
 import binread;
 import binary.common;
 import binary.writer;
@@ -109,6 +111,32 @@ void extractScript(File script)
 			}
 			ushort[] data;
 			data ~= char_;
+			//Hold on! Is this utf char valid?
+			if (!isValidCodepoint(cast(wchar) char_))
+			{
+				//Assume we are reading a surrogate pair and unconditionally read another ushort
+				writeln("We aren't valid char yet! Assuming Surrogate Pair...");
+				ushort low_surrogate = readU16(script);
+				uint newData;
+				newData = char_<<16 | low_surrogate;//This is wacky
+				uint[] newDataArr;
+				newDataArr ~= newData;
+				writefln("New UTF: %08X", newData);
+				if (!isValidCodepoint(cast(dchar) newData)) //STILL not right???
+				{
+					//Lets just write both values as escape codes
+					writeln("STILL not valid writing as individual escape codes");
+					//This is dumb
+					ushort lh = newData & 0x0000FFFF;
+					ushort uh = newData & 0xFFFF;
+					str ~= cast(wstring)("\\" ~ "u" ~ format("%04X", lh) ~ "\\" ~ "u" ~ format("%04X", uh));
+				}
+				else
+				{
+					str ~= cast(wstring)newDataArr.assumeUTF;
+				}
+				continue;
+			}
 			str ~= data.assumeUTF;
 		}
 		/*Grabbing the String Flags*/
