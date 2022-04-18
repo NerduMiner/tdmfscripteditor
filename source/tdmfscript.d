@@ -9,6 +9,7 @@ import binread;
 import binary.common;
 import binary.writer;
 import vibe.data.json;
+import vibe.data.serialization;
 
 ///Stores Script Header information
 struct TextHeader {
@@ -34,6 +35,8 @@ struct TextHeader {
 struct TextInfo {
 	uint flags;
 	wstring text_contents;
+	@embedNullable uint manualOffset; //There are some funny files that have weird string offsets for some entries
+	@embedNullable bool hasManualOffset;
 }
 
 ///Stores Text Script information
@@ -60,15 +63,32 @@ void extractScript(File script)
 	ulong stringOffsetIndex;
 	//*Begin Processing Text
 	script.seek(header.offset_strings); //Go to string offset table
+	uint handledStrangeEntry = false; // set this to false first, then true every time we find a strange entry
 	for (int i = 0; i < (header.strings_section_size1 / 4); i++) 
 	{
 		uint curStringOffset = readU32(script);
 		stringOffsetIndex = script.tell();
+		uint nexStringOffset = readU32(script); // This will be useful to us when we verify byte length of strings
+		if (nexStringOffset == 0) // Usually means we are at the end of the string offsets section
+		{
+			script.seek(scriptInfo.header.offset4); // Use the script attributes offset since that is placed right after last text entry
+			nexStringOffset = readU32(script);
+		}
 		script.seek(curStringOffset); //Go to current string
 		wstring str;
+		uint bytesRead; //A metric for how many bytes for a string we've read
 		while (true)
 		{
+			//Verify that our offset is NOT inside the header
+			if (curStringOffset < 64)
+			{
+				writeln("Strange offset found, creating blank entry");
+				str = ""; //Don't read anything, just make a blank entry
+				handledStrangeEntry = true;
+				break;
+			}
 			ushort char_ = readU16(script);
+			bytesRead += 2;
 			//writefln("file offset: %s", script.tell());
 			/*writeln(char_);*/
 			if (char_ == 0) //Usually means EOL
@@ -80,14 +100,17 @@ void extractScript(File script)
 				wstring identifier = readUTF16Array(script, 1).assumeUTF;
 				wstring other_number = readUTF16Array(script, 1).assumeUTF;//to!wstring(readU16(script));
 				str ~= ("<" ~ to!wstring(char_) ~ identifier ~ other_number ~ ">"); //No spaces cause they USE spaces as a valid thing
+				bytesRead += 4;
 				continue;
 			}
 			if (char_ == 3) //ASCII?
 			{
 				str ~= ("{" ~ to!wstring(readU16(script)) ~ ", ");
+				bytesRead += 2;
 				while (true)
 				{
 					ubyte ascii_ = readU8(script);
+					bytesRead += 1;
 					if (ascii_ == 0)
 					{
 						//Sometimes, there can be two 0s instead of one so check for that
@@ -95,6 +118,7 @@ void extractScript(File script)
 						if (readU8(script) == 0)
 						{
 							str ~= ", +}"; //Make sure to tell repacking code to add one extra 00
+							bytesRead += 1;
 							break;
 						}
 						//"No extra 0 needed"
@@ -117,6 +141,7 @@ void extractScript(File script)
 				//Assume we are reading a surrogate pair and unconditionally read another ushort
 				writeln("We aren't valid char yet! Assuming Surrogate Pair...");
 				ushort low_surrogate = readU16(script);
+				bytesRead += 2;
 				uint newData;
 				newData = char_<<16 | low_surrogate;//This is wacky
 				uint[] newDataArr;
@@ -140,8 +165,35 @@ void extractScript(File script)
 			str ~= data.assumeUTF;
 		}
 		/*Grabbing the String Flags*/
-		script.seek(scriptInfo.header.offset3 + (i * 4));
-		scriptInfo.text_info ~= TextInfo(readU32(script), str);
+		if (!handledStrangeEntry)
+		{
+			script.seek(scriptInfo.header.offset3 + (i * 4));
+			//Ok! All ready to add, but we need to make sure that we read the correct amount
+			writefln("Bytes Read: %s, Assumed Byte size of string: %s", bytesRead, nexStringOffset - curStringOffset);
+			if (bytesRead > (nexStringOffset - curStringOffset))
+			{
+				writeln("WARNING: We read more than supposed to! Redoing string...");
+				str = "";
+				ubyte[] secondPassString;
+				script.seek(curStringOffset);//Jump back to start of string
+				for (int j = 1; j <= (nexStringOffset - curStringOffset); j++)
+				{
+					secondPassString ~= readU8(script);
+					if ((j % 2) == 0 && j != 0)
+					{
+						writeln(("\\" ~ "u" ~ format("%04X", cast(ushort)(secondPassString[j-1]<<8 | secondPassString[j-2]))));
+						str ~= cast(wstring)("\\" ~ "u" ~ format("%04X", cast(ushort)(secondPassString[j-1]<<8 | secondPassString[j-2]))); //What ???
+					}
+				}
+			}
+			scriptInfo.text_info ~= TextInfo(readU32(script), str);
+		}
+		else
+		{
+			script.seek(scriptInfo.header.offset3 + (i * 4));
+			scriptInfo.text_info ~= TextInfo(readU32(script), str, curStringOffset, true);
+			handledStrangeEntry = false; //Reset this after we are done
+		}
 		script.seek(stringOffsetIndex);
 		writefln("Line %s at offset %s parsed.", i, curStringOffset);
 	}
@@ -194,6 +246,8 @@ void repackScript(File json)
 	/*Thats it! Everything else can be influenced by text size. So lets put all of our text into a data buffer*/
 	wchar[] string_buffer;
 	ulong[] string_lengths; //These will be useful for calculating offsets later
+	ulong[] manual_string_offsets;
+	bool[] has_manual_string_offset;
 	ulong[] attribute_lengths;
 	foreach(TextInfo text; textScript.text_info)
 	{
@@ -293,8 +347,13 @@ void repackScript(File json)
 			//string_buffer ~= _char;
 			textContent.write(_char);
 		}
-		textContent.write(cast(wchar)0);
-		//Note down length of buffer
+		if (!text.hasManualOffset) //Don't create ANY data if we have a strange offset
+		{
+			textContent.write(cast(wchar)0);
+		}
+		//Note down length of buffer and its manual Offset(not always used)
+		manual_string_offsets ~= text.manualOffset;
+		has_manual_string_offset ~= text.hasManualOffset;
 		string_lengths ~= textContent.buffer.length;
 	}
 	//Lets add in the script attributes now since they come right after the text
@@ -314,13 +373,22 @@ void repackScript(File json)
 	//String offset time!
 	for (int i = 0; i < string_lengths.length; i++)
 	{
+		if (has_manual_string_offset[i])
+		{
+			stringOffsets.write(to!uint(manual_string_offsets[i]));
+			continue;
+		}
+		else if (i != 0)
+		{
+			stringOffsets.write(to!uint(64 + string_lengths[i-1]));
+			continue;
+		}
 		if (i == 0)
 		{
 			//First offset is always as 40
 			stringOffsets.write(to!uint(64));
 			continue;
 		}
-		stringOffsets.write(to!uint(64 + string_lengths[i-1]));
 	}
 	//More header values now
 	writer.write(to!uint(64 + textContent.buffer.length)); //String offset section offset
