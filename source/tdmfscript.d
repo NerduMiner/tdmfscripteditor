@@ -451,6 +451,7 @@ void repackScript(File json)
 		lineCount += 1;
 		writefln("Line %s parsed", lineCount);
 	}
+	writefln("textContent length: %s", textContent.buffer.length);
 	//Lets add in the script attributes now since they come right after the text
 	foreach(string attribute; textScript.attributes.attributeStrings)
 	{
@@ -459,13 +460,22 @@ void repackScript(File json)
 		textContent.write(cast(ubyte)0);
 		attribute_lengths ~= attribute.length + 1;
 	}
+	writefln("textContent length after attributes: %s", textContent.buffer.length);
 	//Ok we should have all text accounted for now, lets prepare the next header value
-	writer.write(to!uint(textContent.buffer.length));
+	if (textContent.buffer.length % 0x10 == 0xF) //HACK: pad reported length by one if mod 16 gives us 15
+	{
+		writer.write(to!uint(textContent.buffer.length + 1));
+	}
+	else
+	{
+		writer.write(to!uint(textContent.buffer.length));
+	}
 	//Now pad out textContent to the next 0x10 bytes since we have written proper length
 	while (textContent.buffer.length % 0x10 != 0)
 	{
 		textContent.writeArray(new ubyte[1]);
 	}
+	writefln("textContent length after buffer: %s", textContent.buffer.length);
 	//String offset time!
 	for (int i = 0; i < string_lengths.length; i++)
 	{
@@ -546,7 +556,6 @@ void repackScript(File json)
 	//We don't have to add padding to this section for whatever reason, also divide by four because its a COUNT!!!!
 	writer.write(to!uint(stringOffsetOffsets.buffer.length/4));
 	//These set of offsets seem to relate to the length of the script text and however much between the script attributes
-	writer.write(to!uint(0)); //This is usually 0
 	ulong beforeLastAttributeLength;
 	ulong afterLastAttributeLength;
 	for (int i = 0; i < attribute_lengths.length; i++)
@@ -554,12 +563,16 @@ void repackScript(File json)
 		if (i == attribute_lengths.length - 1 || (indexOf(textScript.attributes.attributeStrings[i], "Message") != -1))
 		{
 			afterLastAttributeLength = beforeLastAttributeLength + attribute_lengths[i];
+			break;
 		}
 		else
 		{
 			beforeLastAttributeLength += attribute_lengths[i];
 		}
 	}
+	writefln("beforeLastAttributeLength: %s\nafterLastAttributeLength: %s", beforeLastAttributeLength, afterLastAttributeLength);
+	writefln("string_lengths[$-1]: %s", string_lengths[$-1]);
+	writer.write(to!uint(0)); //This is usually 0
 	writer.write(to!uint(string_lengths[$-1] + beforeLastAttributeLength)); //Length of text before the last file attribute
 	writer.write(to!uint(string_lengths[$-1] + afterLastAttributeLength)); //Length of text including the last file attribute
 	writer.write(to!uint(0)); //This is usually 0
