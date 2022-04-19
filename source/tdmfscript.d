@@ -23,7 +23,7 @@ struct TextHeader {
 	uint section_size2;
 	uint offset4; //File flags?
 	uint section_size3;
-	uint offset5;
+	uint offset5; //String offset offsets
 	uint section_size4;
 	uint unk3;
 	uint offset6;
@@ -33,18 +33,39 @@ struct TextHeader {
 
 ///Stores Specific Text Entry Info
 struct TextInfo {
-	uint flags;
+	//uint flags;
 	wstring text_contents;
+	bool hasEntryInOffsetOffsets; //Sometimes, the string offset offsets will not have an offset for a specific entry
 	@embedNullable uint manualOffset; //There are some funny files that have weird string offsets for some entries
 	@embedNullable bool hasManualOffset;
+}
+
+///Stores any data about special attribute pairs
+struct AttributePair {
+	string attribute;
+	uint value; //Purpose unknown
+}
+
+///Stores general file attribute data
+struct AttributeData {
+	string[] attributeStrings;
+	AttributePair[] attributePairs;
 }
 
 ///Stores Text Script information
 struct TextScript {
 	TextHeader header;
 	TextInfo[] text_info;
-	string[] attributes;
+	AttributeData attributes;
+	uint[] flags;
+	//string[] attributes;
 	//string[] strings;
+}
+
+//This enum is to tokenize values that cannot be easily exported to JSON, primarily for byte accuracy
+enum SpecialTokens : ushort
+{
+	uDEC0 = 57024,
 }
 
 ///Extracts Script Data, exporting it as an editable JSON format
@@ -64,8 +85,10 @@ void extractScript(File script)
 	//*Begin Processing Text
 	script.seek(header.offset_strings); //Go to string offset table
 	uint handledStrangeEntry = false; // set this to false first, then true every time we find a strange entry
+	ulong curOffsetOffsetsPos = header.offset5; //For holding our position in the string offset offsets section
 	for (int i = 0; i < (header.strings_section_size1 / 4); i++) 
 	{
+		ulong curStringOffsetPos = script.tell();
 		uint curStringOffset = readU32(script);
 		stringOffsetIndex = script.tell();
 		uint nexStringOffset = readU32(script); // This will be useful to us when we verify byte length of strings
@@ -89,6 +112,13 @@ void extractScript(File script)
 			}
 			ushort char_ = readU16(script);
 			bytesRead += 2;
+			//Is this short part of a string that can possibly be tokenized?
+			if (char_ == SpecialTokens.uDEC0)
+			{
+				writeln("Found uDEC0 token, tokenizing...");
+				str = "{{DEC0D0B000B0}}";
+				break;
+			}
 			//writefln("file offset: %s", script.tell());
 			/*writeln(char_);*/
 			if (char_ == 0) //Usually means EOL
@@ -164,10 +194,8 @@ void extractScript(File script)
 			}
 			str ~= data.assumeUTF;
 		}
-		/*Grabbing the String Flags*/
 		if (!handledStrangeEntry)
 		{
-			script.seek(scriptInfo.header.offset3 + (i * 4));
 			//Ok! All ready to add, but we need to make sure that we read the correct amount
 			writefln("Bytes Read: %s, Assumed Byte size of string: %s", bytesRead, nexStringOffset - curStringOffset);
 			if (bytesRead > (nexStringOffset - curStringOffset))
@@ -186,16 +214,45 @@ void extractScript(File script)
 					}
 				}
 			}
-			scriptInfo.text_info ~= TextInfo(readU32(script), str);
+			//Check if this entry's offset is inside the string offset offsets section
+			script.seek(curOffsetOffsetsPos);
+			uint validOffset = readU32(script);
+			writefln("validOffset: %s, curStringOffsetPos: %s", validOffset, curStringOffsetPos);
+			if (validOffset == curStringOffsetPos) //Is our position in the string offsets RIGHT NOW something valid in the string offsets table?
+			{
+				scriptInfo.text_info ~= TextInfo(str, true);
+				curOffsetOffsetsPos = script.tell(); //Only move this forward in the table when its true
+			}
+			else
+			{
+				scriptInfo.text_info ~= TextInfo(str, false);
+			}
 		}
 		else
 		{
-			script.seek(scriptInfo.header.offset3 + (i * 4));
-			scriptInfo.text_info ~= TextInfo(readU32(script), str, curStringOffset, true);
+			//Check if this entry's offset is inside the string offset offsets section
+			script.seek(curOffsetOffsetsPos);
+			uint validOffset = readU32(script);
+			writefln("validOffset: %s, curStringOffsetPos: %s", validOffset, curStringOffsetPos);
+			if (validOffset == curStringOffsetPos) //Is our position in the string offsets RIGHT NOW something valid in the string offsets table?
+			{
+				scriptInfo.text_info ~= TextInfo(str, true, curStringOffset, true); //Considering we had to manually set an offset...I dont think this path will be taken much
+				curOffsetOffsetsPos = script.tell(); //Only move this forward in the table when its true
+			}
+			else
+			{
+				scriptInfo.text_info ~= TextInfo(str, false, curStringOffset, true);
+			}
 			handledStrangeEntry = false; //Reset this after we are done
 		}
 		script.seek(stringOffsetIndex);
 		writefln("Line %s at offset %s parsed.", i, curStringOffset);
+	}
+	/*Text(?) flags*/
+	script.seek(scriptInfo.header.offset3);
+	for (int i = 0; i < scriptInfo.header.section_size2; i += 4)
+	{
+		scriptInfo.flags ~= readU32(script);
 	}
 	/*Attributes*/
 	script.seek(scriptInfo.header.offset4);
@@ -210,18 +267,41 @@ void extractScript(File script)
 			ulong curFileOffset = script.tell();
 			if (readU8(script) == 0)
 			{
-				scriptInfo.attributes ~= attribute;
+				scriptInfo.attributes.attributeStrings ~= attribute;
 				attribute = "";
 				break;
 			}
 			script.seek(curFileOffset);
-			scriptInfo.attributes ~= attribute;
+			scriptInfo.attributes.attributeStrings ~= attribute;
 			attribute = "";
 		}
 		else
 		{
 			attribute ~= to!char(ascii_);
 		}
+	}
+	//Now note down any special attribute pairs
+	script.seek(scriptInfo.header.offset4);
+	for (int i = 0; i < scriptInfo.header.section_size3; i += 8) //+8 because we are reading two bytes
+	{
+		ulong curPos = script.tell();
+		script.seek(to!ulong(readU32(script))); //Jump to attribute name
+		string attributeName;
+		while (true) //Do this again because!!!!!!!!!!!!!!!
+		{
+			ubyte ascii_ = readU8(script);
+			if (ascii_ == 0)
+			{
+				break;
+			}
+			else
+			{
+				attributeName ~= to!char(ascii_);
+			}
+		}
+		//Seek back and read value
+		script.seek(curPos+4);
+		scriptInfo.attributes.attributePairs ~= AttributePair(attributeName, readU32(script));
 	}
 	/*Now we are all done!*/
 	jsonOut.writeln(scriptInfo.serializeToPrettyJson);
@@ -249,105 +329,118 @@ void repackScript(File json)
 	ulong[] manual_string_offsets;
 	bool[] has_manual_string_offset;
 	ulong[] attribute_lengths;
+	ulong[] attribute_offsets;
+	ulong lineCount; // Just for noting when a line is parsed
 	foreach(TextInfo text; textScript.text_info)
 	{
-		//While we are here write down the text attributes
-		textAttributes.write(to!uint(text.flags));
 		bool inID, inASCII = false;
 		bool ASCII_extraZero = false; //Sometimes they add in an extra terminator
 		bool ID_firstNumber = false; //Sometimes they want "0" and not 0
-		foreach(wchar _char; text.text_contents)
+		bool textIsToken = false;
+		//Hold on! Check for special tokens before we continue on
+		if (text.text_contents == "{{DEC0D0B000B0}}")
 		{
-			if (_char == to!wchar("<") && !inID)
+			textIsToken = true;
+			writeln("Found uDEC0 token, exporting original data...");
+			textContent.write(to!ushort(57024)); //Write the raw values to the file
+			textContent.write(to!ushort(53424));
+			textContent.write(to!ushort(176));
+		}
+		if (!textIsToken)
+		{
+			foreach(wchar _char; text.text_contents)
 			{
-				inID = true;
-				continue;
-			}
-			
-			if (_char == to!wchar(">"))
-			{
-				inID = false;
-				ID_firstNumber = false;
-				continue;
-			}
-			
-			if (_char == to!wchar("{"))
-			{
-				inASCII = true;
-				//We can insert a value here with confidence since ascii variables commands start with 0x3
-				//string_buffer ~= to!ushort(3);
-				textContent.write(to!ushort(3));
-				continue;
-			}
-			
-			if (_char == to!wchar("}"))
-			{
-				textContent.write(to!ubyte(0));
-				if (ASCII_extraZero)
+				if (_char == to!wchar("<") && !inID)
+				{
+					inID = true;
+					continue;
+				}
+				
+				if (_char == to!wchar(">"))
+				{
+					inID = false;
+					ID_firstNumber = false;
+					continue;
+				}
+				
+				if (_char == to!wchar("{"))
+				{
+					inASCII = true;
+					//We can insert a value here with confidence since ascii variables commands start with 0x3
+					//string_buffer ~= to!ushort(3);
+					textContent.write(to!ushort(3));
+					continue;
+				}
+				
+				if (_char == to!wchar("}"))
 				{
 					textContent.write(to!ubyte(0));
-					ASCII_extraZero = false;
-				}
-				inASCII = false;
-				continue;
-			}
-			
-			if (inID)
-			{
-				//Is our char numeric?
-				if (isNumeric(to!string(_char)) && to!ushort(to!string(_char)) < 3)
-				{
-					writeln("Char in ID is numeric!");
-					//Write it as a number
-					//writeln(to!ushort(_char));
-					//string_buffer ~= to!ushort(to!string(_char));
-					if (!ID_firstNumber)
+					if (ASCII_extraZero)
 					{
-						ID_firstNumber = true;
+						textContent.write(to!ubyte(0));
+						ASCII_extraZero = false;
+					}
+					inASCII = false;
+					continue;
+				}
+				
+				if (inID)
+				{
+					//Is our char numeric?
+					if (isNumeric(to!string(_char)) && to!ushort(to!string(_char)) < 3)
+					{
+						writeln("Char in ID is numeric!");
+						//Write it as a number
+						//writeln(to!ushort(_char));
+						//string_buffer ~= to!ushort(to!string(_char));
+						if (!ID_firstNumber)
+						{
+							ID_firstNumber = true;
+							textContent.write(to!ushort(to!string(_char)));
+							continue;
+						}
+						textContent.write(_char);
+						continue;
+					}
+				}
+				
+				if (inASCII)
+				{
+					//Skip commas and spaces
+					if (_char == to!wchar(" ") || _char == to!wchar(","))
+					{
+						continue;
+					}
+					
+					//Do we need to add an extra terminator at the end?
+					if (_char == to!wchar("+"))
+					{
+						ASCII_extraZero = true;
+						continue;
+					}
+					
+					//Is our char numeric?
+					if (isNumeric(to!string(_char)))
+					{
+						writeln("Char in ID is numeric!");
+						//Write it as a number
+						//string_buffer ~= to!ushort(to!string(_char));
 						textContent.write(to!ushort(to!string(_char)));
 						continue;
 					}
-					textContent.write(_char);
+					
+					//We have to write down anything else as stright ascii, no unicode!
+					//string_buffer ~= to!char(cast(ubyte)_char);
+					textContent.write(to!char(cast(ubyte)_char));
 					continue;
 				}
+				
+				//If we didn't pass any checks, add the char to the buffer!
+				//string_buffer ~= _char;
+				textContent.write(_char);
 			}
-			
-			if (inASCII)
-			{
-				//Skip commas and spaces
-				if (_char == to!wchar(" ") || _char == to!wchar(","))
-				{
-					continue;
-				}
-				
-				//Do we need to add an extra terminator at the end?
-				if (_char == to!wchar("+"))
-				{
-					ASCII_extraZero = true;
-					continue;
-				}
-				
-				//Is our char numeric?
-				if (isNumeric(to!string(_char)))
-				{
-					writeln("Char in ID is numeric!");
-					//Write it as a number
-					//string_buffer ~= to!ushort(to!string(_char));
-					textContent.write(to!ushort(to!string(_char)));
-					continue;
-				}
-				
-				//We have to write down anything else as stright ascii, no unicode!
-				//string_buffer ~= to!char(cast(ubyte)_char);
-				textContent.write(to!char(cast(ubyte)_char));
-				continue;
-			}
-			
-			//If we didn't pass any checks, add the char to the buffer!
-			//string_buffer ~= _char;
-			textContent.write(_char);
 		}
-		if (!text.hasManualOffset) //Don't create ANY data if we have a strange offset
+		if (!text.hasManualOffset && !textIsToken) //Don't create ANY data if we have a strange offset
 		{
 			textContent.write(cast(wchar)0);
 		}
@@ -355,10 +448,13 @@ void repackScript(File json)
 		manual_string_offsets ~= text.manualOffset;
 		has_manual_string_offset ~= text.hasManualOffset;
 		string_lengths ~= textContent.buffer.length;
+		lineCount += 1;
+		writefln("Line %s parsed", lineCount);
 	}
 	//Lets add in the script attributes now since they come right after the text
-	foreach(string attribute; textScript.attributes)
+	foreach(string attribute; textScript.attributes.attributeStrings)
 	{
+		attribute_offsets ~= 64 + textContent.buffer.length;
 		textContent.writeArray(cast(char[])attribute);
 		textContent.write(cast(ubyte)0);
 		attribute_lengths ~= attribute.length + 1;
@@ -399,6 +495,11 @@ void repackScript(File json)
 		stringOffsets.writeArray(new ubyte[1]);
 	}
 	//Write the text attributes offset header and section size
+	//Text(?) flags
+	foreach (uint flag; textScript.flags)
+	{
+		textAttributes.write(flag);
+	}
 	writer.write(to!uint(64 + textContent.buffer.length + stringOffsets.buffer.length)); //Attributes offset
 	writer.write(to!uint(textAttributes.buffer.length)); //Attributes section size
 	//Now we can pad out the textAttributes section
@@ -408,9 +509,17 @@ void repackScript(File json)
 	}
 	//Now we write the offset to a completely arbitrary section that only points to the Script Attributes
 	writer.write(to!uint(64 + textContent.buffer.length + stringOffsets.buffer.length + textAttributes.buffer.length));
-	writer.write(to!uint(8)); //The section size should always be 4 bytes
+	writer.write(to!uint(textScript.attributes.attributePairs.length * 8)); //The section size should always be the length of the attribute pairs array times 2
 	//Oh yeah lets write that now
-	scriptAttributes.write(to!uint(64 + string_lengths[$-1])); //Offset to the script attributes I hope
+	uint attributeCount = 0;
+	foreach (AttributePair attribute_pair; textScript.attributes.attributePairs)
+	{
+		//We need to first figure out what our offset to the specific attribute is, use a variable we setup a while back to do so
+		scriptAttributes.write(to!uint(attribute_offsets[attributeCount])); //MASSIVE assumption, it seems the format lists attributes earliest first
+		scriptAttributes.write(attribute_pair.value);
+		attributeCount += 1;
+	}
+	//scriptAttributes.write(to!uint(64 + string_lengths[$-1])); //Offset to the script attributes I hope
 	//Add 0x10 padding
 	while (scriptAttributes.buffer.length % 0x10 != 0)
 	{
@@ -420,16 +529,39 @@ void repackScript(File json)
 	writer.write(to!uint(64 + textContent.buffer.length + stringOffsets.buffer.length + textAttributes.buffer.length + scriptAttributes.buffer.length));
 	for (int i = 0; i < string_lengths.length; i++)
 	{
-		stringOffsetOffsets.write(to!uint(64 + textContent.buffer.length + i*4));
+		if (textScript.text_info[i].hasEntryInOffsetOffsets)
+		{
+			stringOffsetOffsets.write(to!uint(64 + textContent.buffer.length + i*4));
+		}
+		else
+		{
+			continue;
+		}
 	}
-	//Also make sure to add the offset to the 8 byte section!!!! cause it needs it!!!!
-	stringOffsetOffsets.write(to!uint(64 + textContent.buffer.length + stringOffsets.buffer.length + textAttributes.buffer.length));
+	//Also make sure to add the offsets to the attribute pairs!!!!!!!!!!
+	for (int i = 0; i < textScript.attributes.attributePairs.length; i++)
+	{
+		stringOffsetOffsets.write(to!uint(64 + textContent.buffer.length + stringOffsets.buffer.length + textAttributes.buffer.length + (i * 8)));
+	}
 	//We don't have to add padding to this section for whatever reason, also divide by four because its a COUNT!!!!
 	writer.write(to!uint(stringOffsetOffsets.buffer.length/4));
 	//These set of offsets seem to relate to the length of the script text and however much between the script attributes
 	writer.write(to!uint(0)); //This is usually 0
-	writer.write(to!uint(string_lengths[$-1] + attribute_lengths[0])); //Length of text including 1st script attribute name
-	writer.write(to!uint(string_lengths[$-1] + attribute_lengths[0] + attribute_lengths[1])); //Length of text including 1st & 2nd script attribute names
+	ulong beforeLastAttributeLength;
+	ulong afterLastAttributeLength;
+	for (int i = 0; i < attribute_lengths.length; i++)
+	{
+		if (i == attribute_lengths.length - 1 || (indexOf(textScript.attributes.attributeStrings[i], "Message") != -1))
+		{
+			afterLastAttributeLength = beforeLastAttributeLength + attribute_lengths[i];
+		}
+		else
+		{
+			beforeLastAttributeLength += attribute_lengths[i];
+		}
+	}
+	writer.write(to!uint(string_lengths[$-1] + beforeLastAttributeLength)); //Length of text before the last file attribute
+	writer.write(to!uint(string_lengths[$-1] + afterLastAttributeLength)); //Length of text including the last file attribute
 	writer.write(to!uint(0)); //This is usually 0
 	//All done! Lets flush and clear our buffers
 	newBin.rawWrite(writer.buffer);
