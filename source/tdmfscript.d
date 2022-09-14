@@ -92,7 +92,11 @@ void extractScript(File script)
 		uint curStringOffset = readU32(script);
 		stringOffsetIndex = script.tell();
 		uint nexStringOffset = readU32(script); // This will be useful to us when we verify byte length of strings
-		if (nexStringOffset == 0) // Usually means we are at the end of the string offsets section
+		if (nexStringOffset < 0x40 && nexStringOffset != 0) //Don't accept a dumb offset as a value
+		{
+			nexStringOffset = readU32(script);
+		} 
+		else if (nexStringOffset == 0) // Usually means we are at the end of the string offsets section
 		{
 			script.seek(scriptInfo.header.offset4); // Use the script attributes offset since that is placed right after last text entry
 			nexStringOffset = readU32(script);
@@ -140,18 +144,25 @@ void extractScript(File script)
 				while (true)
 				{
 					ubyte ascii_ = readU8(script);
+					//writefln("Handled ASCII byte: %s", ascii_);
 					bytesRead += 1;
 					if (ascii_ == 0)
 					{
 						//Sometimes, there can be two 0s instead of one so check for that
 						ulong curFileOffset = script.tell();
-						if (readU8(script) == 0)
+						//writefln("curFileOffset: %s", curFileOffset);
+						//writefln("nexStringOffset: %s", cast(ulong)nexStringOffset - 2);
+						//HACK: Report script position - 1 to offset check, this fixes ascii variables with an extra 0 nestled right next to the end of text entry
+						if (readU8(script) == 0 && (script.tell() - 1) < cast(ulong)nexStringOffset - 2) //Second check is to make sure we aren't accidentally reading into the null terminator for the whole string
 						{
+							writeln("Extra 0 needed");
 							str ~= ", +}"; //Make sure to tell repacking code to add one extra 00
 							bytesRead += 1;
 							break;
 						}
 						//"No extra 0 needed"
+						//writefln("curFileOffset: %s", script.tell());
+						//writeln("No extra 0 needed");
 						str ~= "}";
 						script.seek(curFileOffset);
 						break;
@@ -462,7 +473,7 @@ void repackScript(File json)
 	}
 	writefln("textContent length after attributes: %s", textContent.buffer.length);
 	//Ok we should have all text accounted for now, lets prepare the next header value
-	if (textContent.buffer.length % 0x10 == 0xF) //HACK: pad reported length by one if mod 16 gives us 15
+	if (textContent.buffer.length % 0x10 == 0xF || textContent.buffer.length % 0x10 == 0xA) //HACK: pad reported length by one if mod 16 gives us 15 or 10
 	{
 		writer.write(to!uint(textContent.buffer.length + 1));
 	}
