@@ -15,9 +15,17 @@ int main(string[] args)
 			File script = File(args[2], "rb");
 			extractScript(script);
 			return 0;
+		case "extract-old":
+			File script = File(args[2], "rb");
+			extractScriptOld(script);
+			return 0;
 		case "repack":
 			File json = File(args[2], "r");
 			repackScript(json);
+			return 0;
+		case "repack-old":
+			File json = File(args[2], "r");
+			repackScriptOld(json);
 			return 0;
 		default:
 			return 1;
