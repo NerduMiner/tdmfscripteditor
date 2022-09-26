@@ -124,13 +124,18 @@ void extractScript(File script)
 				break;
 			}
 			ushort char_ = readU16(script);
+			ulong stringPos = script.tell; //Just in case our special token check messes up
 			bytesRead += 2;
 			//Is this short part of a string that can possibly be tokenized?
-			if (char_ == SpecialTokens.uDEC0)
+			if (char_ == SpecialTokens.uDEC0 && (readU16(script) == 0xB000))
 			{
 				//writeln("Found uDEC0 token, tokenizing...");
 				str = "{{DEC0D0B000B0}}";
 				break;
+			}
+			else
+			{
+				script.seek(stringPos);
 			}
 			//writefln("file offset: %s", script.tell());
 			/*writeln(char_);*/
@@ -197,14 +202,26 @@ void extractScript(File script)
 				uint[] newDataArr;
 				newDataArr ~= newData;
 				//writefln("New UTF: %08X", newData);
-				if (!isValidCodepoint(cast(dchar) newData)) //STILL not right???
+				if (!isValidCodepoint(to!dchar(newData))) //STILL not right???
 				{
 					//Lets just write both values as escape codes
-					//writeln("STILL not valid writing as individual escape codes");
+					//writeln("STILL not valid, writing as individual escape codes");
 					//This is dumb
-					ushort lh = newData & 0x0000FFFF;
-					ushort uh = newData & 0xFFFF;
-					str ~= cast(wstring)("\\" ~ "u" ~ format("%04X", lh) ~ "\\" ~ "u" ~ format("%04X", uh));
+					//ushort lh = newData & 0x0000FFFF;
+					//ushort uh = newData & 0xFFFF;
+					//writeln(low_surrogate);
+					//writeln(char_);
+					//readln();
+					str ~= ("⟦" ~ to!wstring(format("%04X", char_)) ~ "⟧");
+					// Sanity check to see if the UPPER half is also not valid
+					if (!isValidCodepoint(to!wchar(low_surrogate)))
+					{
+						str ~= ("⟦" ~ to!wstring(format("%04X", low_surrogate)) ~ "⟧");
+					}
+					else
+					{
+						str ~= to!wchar(low_surrogate);
+					}
 				}
 				else
 				{
@@ -213,6 +230,8 @@ void extractScript(File script)
 				continue;
 			}
 			str ~= data.assumeUTF;
+			//writeln(str);
+			//readln();
 		}
 		bool noTerminator = false;
 		if (!handledStrangeEntry)
@@ -231,8 +250,48 @@ void extractScript(File script)
 					secondPassString ~= readU8(script);
 					if ((j % 2) == 0 && j != 0)
 					{
-						//writeln(("\\" ~ "u" ~ format("%04X", cast(ushort)(secondPassString[j-1]<<8 | secondPassString[j-2]))));
-						str ~= cast(wstring)("\\" ~ "u" ~ format("%04X", cast(ushort)(secondPassString[j-1]<<8 | secondPassString[j-2]))); //What ???
+						//writeln(("\\" ~ "u" ~ format("%04X", cast(ushort)(secondPassString[1]<<8 | secondPassString[0]))));
+						//str ~= cast(wstring)("\\" ~ "u" ~ format("%04X", cast(ushort)(secondPassString[j-1]<<8 | secondPassString[j-2]))); //What ???
+						wchar codePoint = (secondPassString[1]<<8 | secondPassString[0]);
+						if (!isValidCodepoint(codePoint)) //Probably surrogate
+						{
+							if ((codePoint >= 0xD800) | (codePoint <= 0xDBFF))
+							{
+								str ~= ("⟦" ~ to!wstring(format("%04X", codePoint)) ~ "⟧"); //Yes I'm using unicode to denote manual unicode
+								//writeln("codePoint was surrogate pair");
+								//writeln(str);
+								//readln();
+							}
+							else
+							{
+								wchar newCodePoint = cast(wchar)(codePoint<<16 | readU16(script));
+								if(!isValidCodepoint(newCodePoint))
+								{
+									ushort lh = newCodePoint & 0x0000FFFF;
+									ushort uh = newCodePoint & 0xFFFF;
+									str ~= cast(wstring)("\\" ~ "u" ~ format("%04X", lh) ~ "\\" ~ "u" ~ format("%04X", uh));
+									//writeln("newCodePoint invalid");
+									//writeln(str);
+									//readln();
+								}
+								else
+								{
+									str ~= newCodePoint;
+									j += 2; //Got here? means we need to bump the for loop to account for the extra reading
+									//writeln("newCodePoint valid");
+									//writeln(str);
+									//readln();
+								}
+							}
+						}
+						else
+						{
+							str ~= codePoint;
+							//writeln("codePoint valid");
+							//writeln(str);
+							//readln();
+						}
+						secondPassString = [];
 					}
 				}
 			}
@@ -701,6 +760,9 @@ void repackScript(File json)
 		bool ASCII_extraZero = false; //Sometimes they add in an extra terminator
 		bool ID_firstNumber = false; //Sometimes they want "0" and not 0
 		bool textIsToken = false;
+		bool manualCodePoint = false; //Mainly for surrogate pairs
+		string manualCodePointChar;
+		ushort manualCodePointData;
 		//Hold on! Check for special tokens before we continue on
 		if (text.text_contents == "{{DEC0D0B000B0}}")
 		{
@@ -722,9 +784,17 @@ void repackScript(File json)
 				
 				if (_char == to!wchar(">"))
 				{
-					inID = false;
-					ID_firstNumber = false;
-					continue;
+					if (inID)
+					{
+						inID = false;
+						ID_firstNumber = false;
+						continue;
+					}
+					else //Huh, this just appears on its own then
+					{
+						textContent.write(to!wchar(">"));
+						continue;
+					}
 				}
 				
 				if (_char == to!wchar("{"))
@@ -745,6 +815,27 @@ void repackScript(File json)
 						ASCII_extraZero = false;
 					}
 					inASCII = false;
+					continue;
+				}
+				
+				if (_char == to!wchar("⟦")) //Mathematical Opening Square Bracket
+				{
+					manualCodePoint = true;
+					continue;
+				}
+				
+				if (_char == to!wchar("⟧")) //Mathematical Closing Square Bracket
+				{
+					manualCodePoint = false;
+					manualCodePointData = to!ushort(manualCodePointChar, 16);
+					textContent.write(manualCodePointData);
+					manualCodePointChar = "";
+					continue;
+				}
+				
+				if (manualCodePoint)
+				{
+					manualCodePointChar ~= _char;
 					continue;
 				}
 				
@@ -836,6 +927,7 @@ void repackScript(File json)
 		writer.write(to!uint(textContent.buffer.length));
 	}
 	//Now pad out textContent to the next 0x10 bytes since we have written proper length
+	ulong text_length = textContent.buffer.length;
 	while (textContent.buffer.length % 0x10 != 0)
 	{
 		textContent.writeArray(new ubyte[1]);
