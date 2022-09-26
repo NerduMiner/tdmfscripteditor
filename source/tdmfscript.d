@@ -928,7 +928,7 @@ void repackScript(File json)
 	}
 	//Now pad out textContent to the next 0x10 bytes since we have written proper length
 	ulong text_length = textContent.buffer.length;
-	while (textContent.buffer.length % 0x10 != 0)
+	while (textContent.buffer.length % 0x20 != 0)
 	{
 		textContent.writeArray(new ubyte[1]);
 	}
