@@ -346,7 +346,7 @@ void extractScript(File script)
 		{
 			//We check for a second 0 to determine if we reach the end of the list
 			ulong curFileOffset = script.tell();
-			if (readU8(script) == 0)
+			if (readU8(script) == 0 || script.tell() >= scriptInfo.header.offset_strings) //Do not read into string offsets section
 			{
 				scriptInfo.attributes.attributeStrings ~= attribute;
 				attribute = "";
@@ -688,7 +688,7 @@ void extractScriptOld(File script)
 		{
 			//We check for a second 0 to determine if we reach the end of the list
 			ulong curFileOffset = script.tell();
-			if (readU8(script) == 0)
+			if (readU8(script) == 0 || script.tell() >= scriptInfo.header.offset_strings) //Do not read into string offsets section
 			{
 				scriptInfo.attributes.attributeStrings ~= attribute;
 				attribute = "";
@@ -797,7 +797,7 @@ void repackScript(File json)
 					}
 				}
 				
-				if (_char == to!wchar("{"))
+				if (_char == to!wchar("{") && !inID)
 				{
 					inASCII = true;
 					//We can insert a value here with confidence since ascii variables commands start with 0x3
@@ -806,7 +806,7 @@ void repackScript(File json)
 					continue;
 				}
 				
-				if (_char == to!wchar("}"))
+				if (_char == to!wchar("}") && !inID)
 				{
 					textContent.write(to!ubyte(0));
 					if (ASCII_extraZero)
@@ -928,9 +928,12 @@ void repackScript(File json)
 	}
 	//Now pad out textContent to the next 0x10 bytes since we have written proper length
 	ulong text_length = textContent.buffer.length;
-	while (textContent.buffer.length % 0x20 != 0)
+	if (textContent.buffer.length % 0x10 != 0x0) //HACK: if length mod 16 = 0, dont pad, because this script format loves being inconsistent
 	{
-		textContent.writeArray(new ubyte[1]);
+		while (textContent.buffer.length % 0x20 != 0)
+		{
+			textContent.writeArray(new ubyte[1]);
+		}
 	}
 	//writefln("textContent length after buffer: %s", textContent.buffer.length);
 	//String offset time!
@@ -1124,7 +1127,7 @@ void repackScriptOld(File json)
 					}
 				}
 				
-				if (_char == to!wchar("{"))
+				if (_char == to!wchar("{") && !inID)
 				{
 					inASCII = true;
 					//We can insert a value here with confidence since ascii variables commands start with 0x3
@@ -1133,7 +1136,7 @@ void repackScriptOld(File json)
 					continue;
 				}
 				
-				if (_char == to!wchar("}"))
+				if (_char == to!wchar("}") && !inID)
 				{
 					textContent.write(to!ubyte(0));
 					if (ASCII_extraZero)
