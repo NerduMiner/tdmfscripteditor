@@ -27,6 +27,10 @@ int main(string[] args)
 			File json = File(args[2], "r");
 			repackScriptNew(json, 3);
 			return 0;
+		case "repack-v2":
+			File json = File(args[2], "r");
+			repackScriptNew(json, 2);
+			return 0;
 		case "repack-old":
 			File json = File(args[2], "r");
 			repackScriptNew(json, 1);
