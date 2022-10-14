@@ -408,8 +408,8 @@ void extractScriptNew(File script, uint script_version)
 		default:
 			break;
 	}
-	writefln("Looping %s times", (header.strings_section_size1 / 4));
-	readln();
+	//writefln("Looping %s times", (header.strings_section_size1 / 4));
+	//readln();
 	for (int i = 0; i < (header.strings_section_size1 / 4); i++) 
 	{
 		offsetindexv3 += 1;
@@ -1062,8 +1062,8 @@ void repackScriptNew(File json, uint script_version)
 			uint v3Counter = 1;
 			uint v3Index = 0;
 			uint v3RealIndex = 0;
-			writefln("Looping %s times", (string_lengths.length + textScript.v3_string_data.length));
-			readln();
+			//writefln("Looping %s times", (string_lengths.length + textScript.v3_string_data.length));
+			//readln();
 			for (int i = 0; i < (string_lengths.length + textScript.v3_string_data.length); i++)
 			{
 				if (has_manual_string_offset[v3RealIndex])
