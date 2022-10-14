@@ -77,6 +77,7 @@ struct TextScript {
 	TextInfo[] text_info;
 	@embedNullable OldStringData[] old_string_data;
 	@embedNullable V2StringOffsetData[] v2_string_data;
+	@embedNullable uint[] v3_string_data;
 	AttributeData attributes;
 	uint[] flags;
 	//string[] attributes;
@@ -87,24 +88,6 @@ struct TextScript {
 enum SpecialTokens : ushort
 {
 	uDEC0 = 57024,
-}
-
-///A handler for nexStringOffset, in which the process differs between versions
-uint handler_nexStringOffset(File script, uint script_version)
-{
-	final switch(script_version)
-	{
-		case 1:
-			if ((script.tell() & 15) == 8) //Avoid mangling nexStringOffset when we get close to oldData
-			{
-				readU32(script);
-				readU32(script);
-				return readU32(script);
-			}
-			goto case 3;
-		case 3:
-			return readU32(script);
-	}
 }
 
 ///A condensed extractor algorithm for Version 2 Scripts
@@ -370,6 +353,32 @@ void V2ScriptLoop(File script, TextScript* scriptInfo)
 	}
 }
 
+///A handler for nexStringOffset, in which the process differs between versions
+uint handler_nexStringOffset(File script, uint script_version, uint v3_counter = 1)
+{
+	final switch(script_version)
+	{
+		case 1:
+			if ((script.tell() & 15) == 8) //Avoid mangling nexStringOffset when we get close to oldData
+			{
+				readU32(script);
+				readU32(script);
+				return readU32(script);
+			}
+			goto case 4;
+		case 3:
+			if (((v3_counter+1) % 3) == 0)
+			{
+				readU32(script);
+				return readU32(script);
+			}
+			break;
+		case 4:
+			return readU32(script);
+	}
+	return readU32(script); // How would you get here?
+}
+
 ///Extracts Script Data, exporting it as an editable JSON format file
 void extractScriptNew(File script, uint script_version)
 {
@@ -388,6 +397,8 @@ void extractScriptNew(File script, uint script_version)
 	script.seek(header.offset_strings); //Go to string offset table
 	uint handledStrangeEntry = false; // set this to false first, then true every time we find a strange entry
 	ulong curOffsetOffsetsPos = header.offset5; //For holding our position in the string offset offsets section
+	uint offsetindexv3 = 0; //To handle the 12 byte non-aligned structure of the string offset section in v3 files
+	uint linesHandled = 1; //To allow a more accurate notion of how many lines were processed.
 	// Sometimes, we need a COMPLETELY different control loop for certain versions
 	switch(script_version)
 	{
@@ -397,8 +408,11 @@ void extractScriptNew(File script, uint script_version)
 		default:
 			break;
 	}
+	writefln("Looping %s times", (header.strings_section_size1 / 4));
+	readln();
 	for (int i = 0; i < (header.strings_section_size1 / 4); i++) 
 	{
+		offsetindexv3 += 1;
 		ulong curStringOffsetPos = script.tell();
 		uint curStringOffset = readU32(script);
 		//Version 1 script files give us trouble with knowing when to stop reading.
@@ -411,8 +425,12 @@ void extractScriptNew(File script, uint script_version)
 		}
 		stringOffsetIndex = script.tell();
 		//Handle version differences related to nexStringOffset
-		uint nexStringOffset = handler_nexStringOffset(script, script_version);
+		uint nexStringOffset = handler_nexStringOffset(script, script_version, offsetindexv3);
 		ulong nexStringOffsetPos = script.tell();
+		writeln(offsetindexv3);
+		//writefln("curStringOffset: %s nexStringOffset: %s", curStringOffset, nexStringOffset);
+		//writefln("Expected String Size: %s", (nexStringOffset - curStringOffset));
+		//readln();
 		script.seek(curStringOffsetPos); // We'll be jumping off to somewhere else soon
 		switch (script_version)
 		{
@@ -425,10 +443,20 @@ void extractScriptNew(File script, uint script_version)
 				}
 				else
 				{
-					goto case 3;
+					goto case 4;
 				}
 				break;
-			case 3:
+			case 3: //Version 3, String offset section is made of 2 uints of offsets and 1 uint of data
+				if ((offsetindexv3 % 3) == 0)
+				{
+					scriptInfo.v3_string_data ~= readU32(script);
+				}
+				else
+				{
+					goto case 4;
+				}
+				break;
+			case 4:
 				if (nexStringOffset < 0x40 && nexStringOffset != 0) //Don't accept a dumb offset as a value
 				{
 					script.seek(nexStringOffsetPos);
@@ -657,7 +685,8 @@ void extractScriptNew(File script, uint script_version)
 					handledStrangeEntry = false; //Reset this after we are done
 				}
 				script.seek(stringOffsetIndex);
-				writefln("Line %s at offset %s parsed.", i, curStringOffset);
+				writefln("Line %s at offset %s parsed.", linesHandled, curStringOffset);
+				linesHandled += 1;
 		}
 	}
 finish_extraction: //LABLE EWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW
@@ -744,6 +773,7 @@ void repackScriptNew(File json, uint script_version)
 	ulong[] attribute_lengths;
 	ulong[] attribute_offsets;
 	ulong lineCount; // Just for noting when a line is parsed
+	writefln("Looping %s times", textScript.text_info.length);
 	foreach(TextInfo text; textScript.text_info)
 	{
 		bool inID, inASCII = false;
@@ -920,7 +950,17 @@ void repackScriptNew(File json, uint script_version)
 	ulong text_length = textContent.buffer.length;
 	if (textContent.buffer.length % 0x10 != 0x0) //HACK: if length mod 16 = 0, dont pad, because this script format loves being inconsistent
 	{
-		while (textContent.buffer.length % 0x20 != 0)
+		ubyte pad_amount;
+		switch(script_version)
+		{
+			case 3:
+				pad_amount = 0x10;
+				break;
+			default:
+				pad_amount = 0x20;
+				break;
+		}
+		while (textContent.buffer.length % pad_amount != 0)
 		{
 			textContent.writeArray(new ubyte[1]);
 		}
@@ -1019,6 +1059,50 @@ void repackScriptNew(File json, uint script_version)
 			}
 			break;
 		case 3:
+			uint v3Counter = 1;
+			uint v3Index = 0;
+			uint v3RealIndex = 0;
+			writefln("Looping %s times", (string_lengths.length + textScript.v3_string_data.length));
+			readln();
+			for (int i = 0; i < (string_lengths.length + textScript.v3_string_data.length); i++)
+			{
+				if (has_manual_string_offset[v3RealIndex])
+				{
+					stringOffsets.write(to!uint(manual_string_offsets[v3RealIndex]));
+					v2_string_indicies ~= stringOffsets.buffer.length;
+					v3RealIndex += 1;
+					v3Counter += 1;
+					continue;
+				}
+				else if (i != 0)
+				{
+					if ((v3Counter % 3) == 0)
+					{
+						stringOffsets.write(to!uint(textScript.v3_string_data[v3Index]));
+						v3Counter += 1;
+						v3Index += 1;
+						continue;
+					}
+					else
+					{
+						//writeln(64 + string_lengths[v3RealIndex]);
+						stringOffsets.write(to!uint(64 + string_lengths[v3RealIndex]));
+						v2_string_indicies ~= stringOffsets.buffer.length; //Reusing V2 stuff in V3
+						v3RealIndex += 1;
+						v3Counter += 1;
+						continue;
+					}
+				}
+				if (i == 0)
+				{
+					//First offset is always as 40
+					stringOffsets.write(to!uint(64));
+					v3Counter += 1;
+					continue;
+				}
+			}
+			break;
+		case 4:
 			for (int i = 0; i < string_lengths.length; i++)
 			{
 				if (has_manual_string_offset[i])
@@ -1119,6 +1203,27 @@ void repackScriptNew(File json, uint script_version)
 			}
 			break;
 		case 3:
+			uint offsetoffsetcounter = 1;
+			uint offsetoffsetoffset = 64;
+			for (int  i = 0; i < v2_string_indicies.length; i++)
+			{
+				if (textScript.text_info[i].hasEntryInOffsetOffsets)
+				{
+					if (offsetoffsetcounter == 3)
+					{
+						offsetoffsetoffset += 4;
+						offsetoffsetcounter = 1;
+					}
+					stringOffsetOffsets.write(to!uint(offsetoffsetoffset + textContent.buffer.length + i*4));
+					offsetoffsetcounter += 1;
+				}
+				else
+				{
+					continue;
+				}
+			}
+			break;
+		case 4:
 			for (int i = 0; i < string_lengths.length; i++)
 			{
 				if (textScript.text_info[i].hasEntryInOffsetOffsets)

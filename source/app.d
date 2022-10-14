@@ -13,11 +13,15 @@ int main(string[] args)
 	{
 		case "extract":
 			File script = File(args[2], "rb");
-			extractScriptNew(script, 3);
+			extractScriptNew(script, 4);
 			return 0;
 		case "extract-v2":
 			File script = File(args[2], "rb");
 			extractScriptNew(script, 2);
+			return 0;
+		case "extract-v3":
+			File script = File(args[2], "rb");
+			extractScriptNew(script, 3);
 			return 0;
 		case "extract-old":
 			File script = File(args[2], "rb");
@@ -25,11 +29,15 @@ int main(string[] args)
 			return 0;
 		case "repack":
 			File json = File(args[2], "r");
-			repackScriptNew(json, 3);
+			repackScriptNew(json, 4);
 			return 0;
 		case "repack-v2":
 			File json = File(args[2], "r");
 			repackScriptNew(json, 2);
+			return 0;
+		case "repack-v3":
+			File json = File(args[2], "r");
+			repackScriptNew(json, 3);
 			return 0;
 		case "repack-old":
 			File json = File(args[2], "r");
