@@ -480,7 +480,7 @@ void extractScriptNew(File script, uint script_version)
 				//Version 4 Script files allow us to check the amount of lines
 				if (linesHandled > header.section_size4 - 3)
 				{
-					writeln("Tool has read all text data, but could not calculate line amount.");
+					writeln("Tool has read all text data.");
 					writeln("Press ENTER to complete extraction process.");
 					readln();
 					if ((offsetindexv3 % 4) == 0)
@@ -496,7 +496,7 @@ void extractScriptNew(File script, uint script_version)
 				//Version 5 Script files allow us to check the amount of lines
 				if (linesHandled-1 > header.section_size4 - 3)
 				{
-					writeln("Tool has read all text data, but could not calculate line amount.");
+					writeln("Tool has read all text data.");
 					writeln("Press ENTER to complete extraction process.");
 					readln();
 					if ((offsetindexv3 % 4) == 0)
@@ -557,7 +557,7 @@ void extractScriptNew(File script, uint script_version)
 				{
 					scriptInfo.v5_string_data ~= V5StringOffsetData(readU32(script), readU32(script), readU32(script),
 						readU32(script), readU32(script), readU32(script));
-					writefln("v5_string_data.length: %s", scriptInfo.v5_string_data.length);
+					//writefln("v5_string_data.length: %s", scriptInfo.v5_string_data.length);
 				}
 				else
 				{
@@ -703,7 +703,7 @@ void extractScriptNew(File script, uint script_version)
 				if (!handledStrangeEntry)
 				{
 					//Ok! All ready to add, but we need to make sure that we read the correct amount
-					writefln("Bytes Read: %s, Assumed Byte size of string: %s", bytesRead, nexStringOffset - curStringOffset);
+					//writefln("Bytes Read: %s, Assumed Byte size of string: %s", bytesRead, nexStringOffset - curStringOffset);
 					if (bytesRead > (nexStringOffset - curStringOffset))
 					{
 						//writeln("WARNING: We read more than supposed to! Redoing string...");
@@ -882,7 +882,7 @@ void repackScriptNew(File json, uint script_version)
 	ulong[] attribute_lengths;
 	ulong[] attribute_offsets;
 	ulong lineCount; // Just for noting when a line is parsed
-	writefln("Looping %s times", textScript.text_info.length);
+	//writefln("Looping %s times", textScript.text_info.length);
 	foreach(TextInfo text; textScript.text_info)
 	{
 		bool inID, inASCII = false;
@@ -1238,7 +1238,7 @@ void repackScriptNew(File json, uint script_version)
 					stringOffsets.write(to!uint(textScript.v4_string_data[i].Unk5Data));
 					stringOffsets.write(to!uint(textScript.v4_string_data[i].Unk6Data));
 					stringOffsets.write(to!uint(textScript.v4_string_data[i].Unk7Data));
-					writefln("Handled %s lines in this loop.", v4_string_index);
+					//writefln("Handled %s lines in this loop.", v4_string_index);
 					continue;
 				}
 				if (i != 0)
@@ -1260,7 +1260,7 @@ void repackScriptNew(File json, uint script_version)
 					stringOffsets.write(to!uint(textScript.v4_string_data[i].Unk5Data));
 					stringOffsets.write(to!uint(textScript.v4_string_data[i].Unk6Data));
 					stringOffsets.write(to!uint(textScript.v4_string_data[i].Unk7Data));
-					writefln("Handled %s lines in this loop.", v4_string_index);
+					//writefln("Handled %s lines in this loop.", v4_string_index);
 					continue;
 				}
 			}
@@ -1289,7 +1289,7 @@ void repackScriptNew(File json, uint script_version)
 					stringOffsets.write(to!uint(textScript.v5_string_data[i].Unk4Data));
 					stringOffsets.write(to!uint(textScript.v5_string_data[i].Unk5Data));
 					stringOffsets.write(to!uint(textScript.v5_string_data[i].Unk6Data));
-					writefln("Handled %s lines in this loop.", v5_string_index);
+					//writefln("Handled %s lines in this loop.", v5_string_index);
 					continue;
 				}
 				if (i != 0)
@@ -1309,7 +1309,7 @@ void repackScriptNew(File json, uint script_version)
 					stringOffsets.write(to!uint(textScript.v5_string_data[i].Unk4Data));
 					stringOffsets.write(to!uint(textScript.v5_string_data[i].Unk5Data));
 					stringOffsets.write(to!uint(textScript.v5_string_data[i].Unk6Data));
-					writefln("Handled %s lines in this loop.", v5_string_index);
+					//writefln("Handled %s lines in this loop.", v5_string_index);
 					continue;
 				}
 			}
