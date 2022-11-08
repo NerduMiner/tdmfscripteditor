@@ -498,7 +498,7 @@ void extractScriptNew(File script, uint script_version)
 		offsetindexv3 += 1;
 		ulong curStringOffsetPos = script.tell();
 		uint curStringOffset = readU32(script);
-		writeln(curStringOffsetPos);
+		//writeln(curStringOffsetPos);
 		//There are certain points when we need to break execution depending on the version
 		switch(script_version)
 		{
@@ -580,7 +580,7 @@ void extractScriptNew(File script, uint script_version)
 		stringOffsetIndex = script.tell();
 		//Handle version differences related to nexStringOffset
 		uint nexStringOffset = handler_nexStringOffset(script, script_version, offsetindexv3);
-		writeln(nexStringOffset);
+		//writeln(nexStringOffset);
 		ulong nexStringOffsetPos = script.tell();
 		//writeln(offsetindexv3);
 		//writefln("curStringOffset: %s nexStringOffset: %s", curStringOffset, nexStringOffset);
@@ -1105,7 +1105,7 @@ void repackScriptNew(File json, uint script_version)
 		manual_string_offsets ~= text.manualOffset;
 		has_manual_string_offset ~= text.hasManualOffset;
 		string_lengths ~= textContent.buffer.length;
-		writeln(textContent.buffer.length);
+		//writeln(textContent.buffer.length);
 		lineCount += 1;
 		//writefln("string_lengths.length: %s", string_lengths.length);
 		writefln("Line %s parsed", lineCount);
