@@ -11,19 +11,6 @@ int main(string[] args)
 	}
 	switch(args[1]) 
 	{
-		case "-v":
-		case "version":
-			writeln("TDMF Script Editor - v1.0.2");
-			return 0;
-		case "-h":
-		case "help":
-			writeln("extract-[version] where version goes from `v2` to `v6`, alternatively `old`");
-			writeln("\textracts [version] files to json");
-			writeln();
-			writeln();
-			writeln("repack-[version] where version goes from `v2` to `v6`, alternatively `old`");
-			writeln("\trepacks [version] files from json to the binary format used in-game.");
-			return 0;
 		case "extract":
 			File script = File(args[2], "rb");
 			extractScriptNew(script, 7);
