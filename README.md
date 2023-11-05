@@ -6,6 +6,7 @@ Run the executable in CLI/Terminal. The desired file/folder you wish to handle w
 <br/>`tdmfscripteditor [extract/repack] [name of script file/json]`
 <br/>The command `extract` when paired with a binary script file will create an equivalent JSON formatted file, allowing for free form editing of text entries
 <br/>The command `repack` when paired with a compatible JSON file will create an equivalent Binary Script file, allowing for use in TDMF mods
+<br/>Both commands can have a version denoter appended to them (i.e. `extract-v2 - extract-v6` and `extract-old`). TDMF script files have an inconsistent binary format. If the default option fails to properly extract or encode the file, use these alternatives to determine the correct version of the file.
 # JSON Formatting
 There are three main parts to an outputted JSON file:
 - "header": Contains information from the script file's header. Refrain from editing any values in this section, value names are also tenative and can change in the future
@@ -13,7 +14,7 @@ There are three main parts to an outputted JSON file:
 - "attributes": Contains a list of what is believed to be Script Attributes. There are two portions to this section: the `attributeStrings` list shows all attributes, while the `attributePairs` list shows specific attributes that have special data pertaining to them. Refrain from editing this portion.
 - "flags": Contains what is assumed to be flags relevant to the script. Refrain from editing this portion.
 # Building
-tdmfscripteditor requires a D compiler(DMD is recommended), downloads can be found at https://dlang.org/.<br/>Once installed, run `dub build` in your CLI/Terminal in the root directory of the repository to compile the project.
+tdmfscripteditor requires a D compiler(DMD v2.105.3+ is recommended), downloads can be found at https://dlang.org/.<br/>Once installed, run `dub build` in your CLI/Terminal in the root directory of the repository to compile the project.
 # Contributing
 I have not yet established a consistent code style for this project. Keep this in mind if you decide to submit a pull request with features. I aim to keep with the D style, however https://dlang.org/dstyle.html
 <br/>If you are submitting an issue, please provide as much relevant information as possible(what file you were working with, what archive from TDMF, relevant steps to reproduce, relevant system information, etc.).
