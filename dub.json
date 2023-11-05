@@ -4,7 +4,7 @@
 	],
 	"copyright": "Copyright © 2021, NerduMiner",
 	"dependencies": {
-		"vibe-d:data": "~>0.9.4"
+		"vibe-d:data": "~>0.9.6"
 	},
 	"description": "A tool which can convert the text scripts of TDMF into a JSON format and back.",
 	"license": "MIT",
