@@ -13,7 +13,7 @@ int main(string[] args)
 	{
 		case "-v":
 		case "version":
-			writeln("TDMF Script Editor - v1.0.2");
+			writeln("TDMF Script Editor - v1.0.10");
 			return 0;
 		case "-h":
 		case "help":
