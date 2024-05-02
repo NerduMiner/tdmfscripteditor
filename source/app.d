@@ -1,4 +1,7 @@
 import tdmfscript;
+import tdmfscriptnew;
+import std.array;
+import std.conv;
 import std.file;
 import std.path;
 import std.stdio;
@@ -7,7 +10,13 @@ int main(string[] args)
 {
 	if (args.length == 1)
 	{
-		throw new Exception("No arguments given, please supply command and/or its arguments.");
+		writeln("extract-[version] where version goes from `v2` to `v6`, alternatively `old`");
+		writeln("\textracts [version] files to json");
+		writeln();
+		writeln();
+		writeln("repack-[version] where version goes from `v2` to `v6`, alternatively `old`");
+		writeln("\trepacks [version] files from json to the binary format used in-game.");
+		return 0;
 	}
 	switch(args[1]) 
 	{
@@ -26,7 +35,21 @@ int main(string[] args)
 			return 0;
 		case "extract":
 			File script = File(args[2], "rb");
-			extractScriptNew(script, 7);
+			// Figure out the version of this script with our config file
+			File config = File("config.dpmf", "r"); // This is just a text file in disguise
+			uint scriptVersion = 7;
+			string line;
+			while ((line = config.readln()) !is null)
+			{
+				string identifier = line.split[0];
+				uint defVer = to!uint(line.split[1]);
+				if (identifier == args[2].split(".")[0])
+				{
+					scriptVersion = defVer;
+					break;
+				}
+			}
+			extractScriptBetter(script, scriptVersion);
 			return 0;
 		case "extract-v2":
 			File script = File(args[2], "rb");
@@ -54,7 +77,21 @@ int main(string[] args)
 			return 0;
 		case "repack":
 			File json = File(args[2], "r");
-			repackScriptNew(json, 7);
+			// Figure out the version of this script with our config file
+			File config = File("config.dpmf", "r"); // This is just a text file in disguise
+			uint scriptVersion = DEFAULT_VERSION;
+			string line;
+			while ((line = config.readln()) !is null)
+			{
+				string identifier = line.split[0];
+				uint defVer = to!uint(line.split[1]);
+				if (identifier == args[2].split(".")[0])
+				{
+					scriptVersion = defVer;
+					break;
+				}
+			}
+			repackScriptBetter(json, scriptVersion);
 			return 0;
 		case "repack-v2":
 			File json = File(args[2], "r");
